@@ -225,7 +225,7 @@ textarea.fi{resize:vertical;min-height:60px}
 <script>
 // ══ CONFIG ══════════════════════════════════════════════════════
 // REEMPLAZÁ esta URL con la que te da Google Apps Script al desplegar
-const API_URL = 'https://script.google.com/macros/s/AKfycbyvhvUjqEmBQp-1J7vlWUREfIPl_nA8mcMxlM_10D82yBgWc2GTvz6DpY4kBtGXN0CV/exec';
+const API_URL = 'TU_URL_DE_APPS_SCRIPT_AQUI';
 
 // ══ DATOS ═══════════════════════════════════════════════════════
 const AREAS = [
@@ -252,7 +252,7 @@ const TEMP  = { weekly:'Esta semana', biweekly:'Quincenal', monthly:'Mensual', r
 let me = null;
 let weekOff = 0;
 let curArea = 'ventas';
-let curView = 'area'; // area | seg
+let curView = 'home'; // home | area | seg
 let fStatus = 'all';
 let fPrio   = 'all';
 let curPersonFilter = null;
@@ -292,7 +292,8 @@ function setSyncState(state) {
 
 async function fetchTasks() {
   if (!API_URL || API_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
-    // Demo mode sin API
+    // Demo mode sin API — solo localStorage, nunca sobreescribir con vacío
+    setSyncState('ok');
     return JSON.parse(localStorage.getItem(weekKey()) || '[]');
   }
   setSyncState('loading');
@@ -300,10 +301,12 @@ async function fetchTasks() {
     const res = await fetch(`${API_URL}?action=getTasks&weekKey=${weekKey()}`);
     const data = await res.json();
     setSyncState('ok');
-    return data.tasks || [];
+    // Si la API devuelve vacío pero hay datos locales, preferir los locales
+    const remote = data.tasks || [];
+    const local  = JSON.parse(localStorage.getItem(weekKey()) || '[]');
+    return remote.length > 0 ? remote : local;
   } catch(e) {
     setSyncState('err');
-    toast('Error de conexión — mostrando datos locales');
     return JSON.parse(localStorage.getItem(weekKey()) || '[]');
   }
 }
@@ -342,11 +345,16 @@ async function loadAndRender() {
 
 function startPolling() {
   if (pollInterval) clearInterval(pollInterval);
+  // Solo hacer polling si la API está configurada
+  if (!API_URL || API_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') return;
   pollInterval = setInterval(async () => {
     const fresh = await fetchTasks();
-    const changed = JSON.stringify(fresh) !== JSON.stringify(tasks);
-    if (changed) { tasks = fresh; saveLocalCache(tasks); renderAll(); }
-  }, 15000); // cada 15 segundos
+    // Solo actualizar si hay datos remotos reales
+    if (fresh.length > 0 || tasks.length === 0) {
+      const changed = JSON.stringify(fresh) !== JSON.stringify(tasks);
+      if (changed) { tasks = fresh; saveLocalCache(tasks); renderAll(); }
+    }
+  }, 15000);
 }
 
 // ══ TOAST ════════════════════════════════════════════════════════
@@ -396,7 +404,8 @@ function canCheck(t) { return isAdmin() || t.person === me?.id; }
 // ══ RENDER ═══════════════════════════════════════════════════════
 function renderAll() {
   renderSidebar();
-  if (curView === 'seg') renderSeguimiento();
+  if (curView === 'seg')  renderSeguimiento();
+  else if (curView === 'home') renderHome();
   else renderAreaView();
 }
 
@@ -407,6 +416,21 @@ function renderSidebar() {
   const pct   = total ? Math.round(done/total*100) : 0;
 
   sb.innerHTML = `
+    <div class="sb-title">Vistas</div>
+    <button class="area-btn ${curView==='home'?'on':''}"
+      style="--ac:#0D2B5E"
+      onclick="setView('home')">
+      <span class="area-dot" style="background:#0D2B5E"></span>
+      Vista general
+      <span class="area-cnt">${total}</span>
+    </button>
+    <button class="area-btn ${curView==='seg'?'on':''}"
+      style="--ac:#1a9a7a"
+      onclick="setView('seg')">
+      <span class="area-dot" style="background:#1a9a7a"></span>
+      Seguimiento
+    </button>
+    <div class="sb-sep"></div>
     <div class="sb-title">Áreas</div>
     ${AREAS.map(a => {
       const cnt = tasks.filter(t=>t.area===a.id).length;
@@ -435,6 +459,62 @@ function renderSidebar() {
         <div class="prog-bar" style="width:${pct}%"></div>
       </div>
       <div style="font-size:10px;color:var(--muted);margin-top:4px">${done} de ${total} completadas</div>
+    </div>`;
+}
+
+function renderHome() {
+  const total = tasks.length;
+  const done  = tasks.filter(t=>t.done).length;
+  const pct   = total ? Math.round(done/total*100) : 0;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const overdue = tasks.filter(t=>!t.done&&t.dueDate&&new Date(t.dueDate)<today).length;
+
+  document.getElementById('mainArea').innerHTML = `
+    <div class="area-hdr">
+      <div class="area-icon-box" style="background:#e8edf518">🏠</div>
+      <div>
+        <div class="area-hdr-name">Vista general</div>
+        <div class="area-hdr-sub">${fmtDate(weekStart())} — ${fmtDate(weekEnd())}</div>
+      </div>
+      <button onclick="loadAndRender()" style="margin-left:auto;font-size:11px;padding:4px 10px;border-radius:6px;border:0.5px solid var(--sand3);background:var(--white);color:var(--muted);cursor:pointer">⟳ Actualizar</button>
+    </div>
+
+    <div class="stats">
+      <div class="stat"><div class="stat-l">Total tareas</div><div class="stat-v">${total}</div><div class="stat-s">esta semana</div></div>
+      <div class="stat"><div class="stat-l">Completadas</div><div class="stat-v" style="color:var(--teal)">${done}</div><div class="stat-s">${pct}%</div></div>
+      <div class="stat"><div class="stat-l">Pendientes</div><div class="stat-v" style="color:var(--amber)">${total-done}</div><div class="stat-s">por hacer</div></div>
+      ${overdue>0
+        ? `<div class="stat" style="border-color:#fca5a5"><div class="stat-l" style="color:var(--red)">Vencidas</div><div class="stat-v" style="color:var(--red)">${overdue}</div><div class="stat-s">urgente</div></div>`
+        : `<div class="stat"><div class="stat-l">Progreso</div><div class="stat-v">${pct}%</div><div class="prog-bar-bg" style="margin-top:6px"><div class="prog-bar" style="width:${pct}%"></div></div></div>`}
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px;margin-bottom:16px">
+      ${AREAS.map(a => {
+        const at = tasks.filter(t=>t.area===a.id);
+        const ad = at.filter(t=>t.done).length;
+        const ap = at.length ? Math.round(ad/at.length*100) : 0;
+        return `<div onclick="selectArea('${a.id}')" style="background:var(--white);border:0.5px solid var(--sand2);border-radius:var(--radius-lg);padding:12px 14px;cursor:pointer;border-left:3px solid ${a.color};transition:all .15s"
+          onmouseover="this.style.borderColor='${a.color}'" onmouseout="this.style.borderLeftColor='${a.color}'">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <span style="font-size:18px">${a.icon}</span>
+            <span style="font-size:13px;font-weight:500;color:var(--ink)">${a.name}</span>
+            <span style="margin-left:auto;font-size:11px;color:var(--muted)">${ad}/${at.length}</span>
+          </div>
+          <div class="prog-bar-bg"><div class="prog-bar" style="width:${ap}%;background:${a.color}"></div></div>
+          <div style="font-size:10px;color:var(--muted2);margin-top:4px">${ap}% completado</div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    ${isAdmin() ? `<div style="display:flex;justify-content:flex-end;margin-bottom:12px">
+      <button class="add-btn" onclick="openModal()">+ Nueva tarea</button>
+    </div>` : ''}
+
+    <div style="font-size:12px;font-weight:500;color:var(--muted);margin-bottom:8px;letter-spacing:.3px">Tareas recientes</div>
+    <div class="tasks">
+      ${tasks.length===0
+        ? `<div class="empty">Sin tareas esta semana. ${isAdmin()?'Creá la primera con "+ Nueva tarea".':''}</div>`
+        : tasks.filter(t=>!t.done).sort(sortT).slice(0,10).map(renderTask).join('')}
     </div>`;
 }
 
@@ -473,6 +553,7 @@ function renderAreaView() {
     </div>
 
     <div class="view-toggle">
+      <button class="vtbtn ${curView==='home'?'on':''}" onclick="setView('home')">🏠 Inicio</button>
       <button class="vtbtn ${curView==='area'?'on':''}" onclick="setView('area')">Por área</button>
       <button class="vtbtn ${curView==='seg'?'on':''}" onclick="setView('seg')">Seguimiento</button>
       <button onclick="loadAndRender()" style="margin-left:auto;font-size:11px;padding:4px 10px;border-radius:6px;border:0.5px solid var(--sand3);background:var(--white);color:var(--muted);cursor:pointer">⟳ Actualizar</button>
@@ -551,6 +632,7 @@ function renderSeguimiento() {
   const main = document.getElementById('mainArea');
   main.innerHTML = `
     <div class="view-toggle">
+      <button class="vtbtn ${curView==='home'?'on':''}" onclick="setView('home')">🏠 Inicio</button>
       <button class="vtbtn ${curView==='area'?'on':''}" onclick="setView('area')">Por área</button>
       <button class="vtbtn ${curView==='seg'?'on':''}" onclick="setView('seg')">Seguimiento</button>
       <button onclick="loadAndRender()" style="margin-left:auto;font-size:11px;padding:4px 10px;border-radius:6px;border:0.5px solid var(--sand3);background:var(--white);color:var(--muted);cursor:pointer">⟳ Actualizar</button>
@@ -632,7 +714,11 @@ function chWeek(d){
 function selectArea(id){ curArea=id; curPersonFilter=null; curView='area'; renderAll(); }
 function filterPerson(id){ curPersonFilter=(curPersonFilter===id?null:id); curView='area'; renderAll(); }
 function clearPersonFilter(){ curPersonFilter=null; renderAll(); }
-function setView(v){ curView=v; curPersonFilter=null; renderAll(); }
+function setView(v){
+  curView=v;
+  if(v==='area'||v==='home') curPersonFilter=null;
+  renderAll();
+}
 function setF(type,val){ if(type==='s')fStatus=val; else fPrio=val; renderAll(); }
 
 async function doToggle(id){
