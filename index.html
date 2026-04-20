@@ -292,43 +292,64 @@ function setSyncState(state) {
 
 async function fetchTasks() {
   if (!API_URL || API_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
-    // Demo mode sin API — solo localStorage, nunca sobreescribir con vacío
     setSyncState('ok');
     return JSON.parse(localStorage.getItem(weekKey()) || '[]');
   }
   setSyncState('loading');
   try {
-    const res = await fetch(`${API_URL}?action=getTasks&weekKey=${weekKey()}`);
+    const res = await fetch(`${API_URL}?action=getTasks&weekKey=${encodeURIComponent(weekKey())}`);
     const data = await res.json();
     setSyncState('ok');
-    // Si la API devuelve vacío pero hay datos locales, preferir los locales
     const remote = data.tasks || [];
-    const local  = JSON.parse(localStorage.getItem(weekKey()) || '[]');
-    return remote.length > 0 ? remote : local;
+    return remote;
   } catch(e) {
     setSyncState('err');
-    return JSON.parse(localStorage.getItem(weekKey()) || '[]');
+    const local = JSON.parse(localStorage.getItem(weekKey()) || '[]');
+    return local;
   }
 }
 
 async function apiPost(body) {
   if (!API_URL || API_URL === 'TU_URL_DE_APPS_SCRIPT_AQUI') {
-    // Demo mode — solo localStorage
+    // Demo mode — guardar solo en localStorage
+    if (body.action === 'saveTask') {
+      let tasks = JSON.parse(localStorage.getItem(weekKey()) || '[]');
+      const idx = tasks.findIndex(t => t.id === body.task.id);
+      if (idx >= 0) tasks[idx] = body.task; else tasks.push(body.task);
+      localStorage.setItem(weekKey(), JSON.stringify(tasks));
+    }
+    if (body.action === 'toggleTask') {
+      let tasks = JSON.parse(localStorage.getItem(weekKey()) || '[]');
+      const t = tasks.find(t => t.id === body.id);
+      if (t) { t.done = body.done; t.doneBy = body.doneBy; t.doneAt = body.doneAt; }
+      localStorage.setItem(weekKey(), JSON.stringify(tasks));
+    }
+    if (body.action === 'deleteTask') {
+      let tasks = JSON.parse(localStorage.getItem(weekKey()) || '[]').filter(t => t.id !== body.id);
+      localStorage.setItem(weekKey(), JSON.stringify(tasks));
+    }
+    if (body.action === 'addNote') {
+      let tasks = JSON.parse(localStorage.getItem(weekKey()) || '[]');
+      const t = tasks.find(t => t.id === body.id);
+      if (t) { const prev = t.notes ? t.notes + ' | ' : ''; t.notes = prev + `[${body.personName}]: ${body.note}`; }
+      localStorage.setItem(weekKey(), JSON.stringify(tasks));
+    }
     return { ok: true };
   }
   setSyncState('loading');
   try {
-    const res = await fetch(API_URL, {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(body)
+    // Usar GET con datos serializados para evitar CORS
+    const params = new URLSearchParams({
+      action: body.action,
+      data: JSON.stringify(body)
     });
+    const res = await fetch(`${API_URL}?${params.toString()}`);
     const data = await res.json();
     setSyncState('ok');
     return data;
   } catch(e) {
     setSyncState('err');
-    toast('Error al guardar — reintentando...');
+    toast('Error al guardar');
     return { error: e.toString() };
   }
 }
