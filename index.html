@@ -375,7 +375,7 @@ function startPolling() {
       const changed = JSON.stringify(fresh) !== JSON.stringify(tasks);
       if (changed) { tasks = fresh; saveLocalCache(tasks); renderAll(); }
     }
-  }, 15000);
+  }, 8000);
 }
 
 // ══ TOAST ════════════════════════════════════════════════════════
@@ -747,6 +747,7 @@ async function doToggle(id){
   t.done=!t.done; t.doneBy=t.done?me.id:null; t.doneAt=t.done?new Date().toISOString():null;
   saveLocalCache(tasks); renderAll();
   await apiPost({action:'toggleTask',id,done:t.done,doneBy:t.doneBy||'',doneAt:t.doneAt||''});
+  await loadAndRender();
   toast(t.done?'✓ Tarea completada':'↩ Tarea reabierta');
 }
 
@@ -755,6 +756,7 @@ async function doDelete(id){
   tasks=tasks.filter(t=>t.id!==id);
   saveLocalCache(tasks); renderAll();
   await apiPost({action:'deleteTask',id});
+  await loadAndRender();
   toast('Tarea eliminada');
 }
 
@@ -769,6 +771,7 @@ async function doNote(id){
   t.notes=prev+`[${me.name}]: ${note}`;
   noteForId=null; saveLocalCache(tasks); renderAll();
   await apiPost({action:'addNote',id,note,personName:me.name});
+  await loadAndRender();
   toast('Nota guardada');
 }
 
@@ -853,8 +856,13 @@ async function saveTask(){
   }
   curArea=task.area; curView='area';
   saveLocalCache(tasks); closeMo(); renderAll();
-  await apiPost({action:'saveTask',task});
-  toast(editId?'Tarea actualizada':'Tarea creada');
+  const result = await apiPost({action:'saveTask',task});
+  if(result && result.ok) {
+    await loadAndRender();
+    toast(editId?'Tarea actualizada':'Tarea creada');
+  } else {
+    toast('Error al sincronizar — verificá la conexión');
+  }
 }
 
 // ══ INIT ═════════════════════════════════════════════════════════
