@@ -4,6 +4,14 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Tablero Operativo — Mar Azul Suites</title>
+<meta name="theme-color" content="#0D2B5E">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Tablero MAS">
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* ═══ VARIABLES ═══ */
@@ -171,12 +179,45 @@ textarea.fi{resize:vertical;min-height:60px}
 .toast{position:fixed;bottom:20px;right:20px;background:var(--ink);color:white;font-size:12px;padding:9px 16px;border-radius:9px;z-index:999;opacity:0;transform:translateY(8px);transition:all .25s;pointer-events:none}
 .toast.show{opacity:1;transform:translateY(0)}
 
+/* ═══ BADGE ARRASTRADA ═══ */
+.b-carry{background:#FDEBD0;color:#9A5B00}
+
+/* ═══ BOTTOM NAV (celular) ═══ */
+.bottombar{display:none;position:fixed;bottom:0;left:0;right:0;z-index:350;background:var(--white);border-top:0.5px solid var(--sand3);padding:6px 4px calc(6px + env(safe-area-inset-bottom));justify-content:space-around;box-shadow:0 -2px 12px rgba(0,0,0,.06)}
+.bb-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;background:none;border:none;font-family:'Sora',sans-serif;font-size:10px;color:var(--muted);cursor:pointer;padding:4px 0;-webkit-tap-highlight-color:transparent}
+.bb-btn.on{color:var(--navy);font-weight:600}
+.bb-ico{font-size:19px;line-height:1.2}
+.bb-add .bb-ico{background:var(--navy);color:white;width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;margin-top:-16px;box-shadow:var(--shadow)}
+
+/* ═══ CHIPS DE ÁREA (celular) ═══ */
+.area-chips{display:none;gap:6px;overflow-x:auto;padding:2px 2px 6px;margin-bottom:10px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.area-chips::-webkit-scrollbar{display:none}
+.chip{flex-shrink:0;font-family:'Sora',sans-serif;font-size:11px;padding:7px 13px;border-radius:16px;border:0.5px solid var(--sand3);background:var(--white);color:var(--muted);cursor:pointer;white-space:nowrap}
+.chip.on{color:white;border-color:transparent;font-weight:500}
+
+/* ═══ INSTALAR APP ═══ */
+.install-btn{display:none;align-items:center;gap:6px;font-family:'Sora',sans-serif;font-size:12px;font-weight:500;padding:8px 18px;border-radius:20px;border:none;background:var(--teal);color:white;cursor:pointer}
+
+@media(hover:none){
+  .tactions{opacity:1}
+}
 @media(max-width:768px){
   .sidebar{display:none}
-  .main{padding:12px}
+  .main{padding:12px 12px calc(80px + env(safe-area-inset-bottom))}
   .frow{grid-template-columns:1fr}
   .stats{grid-template-columns:1fr 1fr}
   .pgrid{grid-template-columns:repeat(2,1fr)}
+  body.logged .bottombar{display:flex}
+  .area-chips{display:flex}
+  .view-toggle .vtbtn{display:none}
+  .topbar{padding:0 12px;gap:8px}
+  .tb-brand span{display:none}
+  #topName{display:none}
+  .wlabel{font-size:10px;padding:4px 8px}
+  .chk{width:24px;height:24px;border-radius:6px}
+  .tcard{grid-template-columns:26px 1fr auto;padding:12px}
+  .filters .add-btn{display:none}
+  .toast{bottom:calc(84px + env(safe-area-inset-bottom));left:20px}
 }
 </style>
 </head>
@@ -211,6 +252,7 @@ textarea.fi{resize:vertical;min-height:60px}
     <h1>Mar Azul Suites</h1>
     <p>Tablero Operativo — Seleccioná tu perfil</p>
     <div class="pgrid" id="personGrid"></div>
+    <button class="install-btn" id="installBtn" onclick="installApp()">⬇ Instalar en el celular</button>
   </div>
 </div>
 
@@ -218,6 +260,9 @@ textarea.fi{resize:vertical;min-height:60px}
 <div class="mo-overlay" id="moOverlay" style="display:none" onclick="closeMoOutside(event)">
   <div class="mo" id="moBox"></div>
 </div>
+
+<!-- ══ BOTTOM NAV (celular) ══ -->
+<nav class="bottombar" id="bottombar"></nav>
 
 <!-- ══ TOAST ══ -->
 <div class="toast" id="toast"></div>
@@ -278,6 +323,8 @@ function weekKey(off = weekOff) {
 }
 function fmtDate(d) { return d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit',year:'numeric'}); }
 function fmtShort(d) { return d.toLocaleDateString('es-AR',{day:'2-digit',month:'2-digit'}); }
+// Parsea 'YYYY-MM-DD' como medianoche LOCAL (new Date('YYYY-MM-DD') sería UTC y corre un día)
+function parseDay(s) { return new Date(String(s).slice(0,10)+'T00:00:00'); }
 function updateWeekLabel() {
   document.getElementById('wlabel').textContent = `${fmtDate(weekStart())} — ${fmtDate(weekEnd())}`;
 }
@@ -396,11 +443,13 @@ function renderLogin() {
       <div class="pname">${p.name}</div>
       <div class="prole">${p.role==='admin'?'Administrador':'Colaborador'}</div>
     </div>`).join('');
+  updateInstallBtn();
 }
 
 function login(id) {
   me = PERSONS.find(p=>p.id===id);
   localStorage.setItem('mas_user', id);
+  document.body.classList.add('logged');
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('topbar').style.display = 'flex';
   document.getElementById('mainLayout').style.display = 'flex';
@@ -416,6 +465,7 @@ function logout() {
   me = null;
   clearInterval(pollInterval);
   localStorage.removeItem('mas_user');
+  document.body.classList.remove('logged');
   renderLogin();
 }
 
@@ -425,9 +475,33 @@ function canCheck(t) { return isAdmin() || t.person === me?.id; }
 // ══ RENDER ═══════════════════════════════════════════════════════
 function renderAll() {
   renderSidebar();
+  renderBottombar();
   if (curView === 'seg')  renderSeguimiento();
   else if (curView === 'home') renderHome();
   else renderAreaView();
+}
+
+function renderBottombar() {
+  const bb = document.getElementById('bottombar');
+  if (!bb || !me) return;
+  bb.innerHTML = `
+    <button class="bb-btn ${curView==='home'?'on':''}" onclick="setView('home')"><span class="bb-ico">🏠</span>Inicio</button>
+    <button class="bb-btn ${curView==='area'?'on':''}" onclick="setView('area')"><span class="bb-ico">🗂️</span>Áreas</button>
+    ${isAdmin()?`<button class="bb-btn bb-add" onclick="openModal()"><span class="bb-ico">+</span>Nueva</button>`:''}
+    <button class="bb-btn ${curView==='seg'?'on':''}" onclick="setView('seg')"><span class="bb-ico">📊</span>Seguimiento</button>`;
+}
+
+function areaChipsHtml() {
+  return `<div class="area-chips">
+    ${AREAS.map(a=>{
+      const on = !curPersonFilter && curArea===a.id;
+      return `<button class="chip ${on?'on':''}" style="${on?`background:${a.color}`:''}" onclick="selectArea('${a.id}')">${a.icon} ${a.name}</button>`;
+    }).join('')}
+    ${PERSONS.map(p=>{
+      const on = curPersonFilter===p.id;
+      return `<button class="chip ${on?'on':''}" style="${on?`background:${p.color}`:''}" onclick="filterPerson('${p.id}')">${p.name}</button>`;
+    }).join('')}
+  </div>`;
 }
 
 function renderSidebar() {
@@ -488,7 +562,7 @@ function renderHome() {
   const done  = tasks.filter(t=>t.done).length;
   const pct   = total ? Math.round(done/total*100) : 0;
   const today = new Date(); today.setHours(0,0,0,0);
-  const overdue = tasks.filter(t=>!t.done&&t.dueDate&&new Date(t.dueDate)<today).length;
+  const overdue = tasks.filter(t=>!t.done&&t.dueDate&&parseDay(t.dueDate)<today).length;
 
   document.getElementById('mainArea').innerHTML = `
     <div class="area-hdr">
@@ -554,7 +628,7 @@ function renderAreaView() {
   const done    = srcTasks.filter(t=>t.done).length;
   const pct     = total ? Math.round(done/total*100) : 0;
   const today   = new Date(); today.setHours(0,0,0,0);
-  const overdue = srcTasks.filter(t=>!t.done&&t.dueDate&&new Date(t.dueDate)<today).length;
+  const overdue = srcTasks.filter(t=>!t.done&&t.dueDate&&parseDay(t.dueDate)<today).length;
 
   const area = AREAS.find(a=>a.id===curArea);
   const person = curPersonFilter ? PERSONS.find(p=>p.id===curPersonFilter) : null;
@@ -572,6 +646,8 @@ function renderAreaView() {
       </div>
       ${curPersonFilter?`<button onclick="clearPersonFilter()" style="margin-left:auto;font-size:11px;padding:4px 10px;border-radius:6px;border:0.5px solid var(--sand3);background:var(--white);color:var(--muted);cursor:pointer">✕ Limpiar filtro</button>`:''}
     </div>
+
+    ${areaChipsHtml()}
 
     <div class="view-toggle">
       <button class="vtbtn ${curView==='home'?'on':''}" onclick="setView('home')">🏠 Inicio</button>
@@ -612,7 +688,7 @@ function renderTask(t) {
   const area   = AREAS.find(a=>a.id===t.area);
   const person = PERSONS.find(p=>p.id===t.person);
   const today  = new Date(); today.setHours(0,0,0,0);
-  const ov     = !t.done && t.dueDate && new Date(t.dueDate) < today;
+  const ov     = !t.done && t.dueDate && parseDay(t.dueDate) < today;
   const pbc    = {high:'b-high',med:'b-med',low:'b-low'};
   const pbe    = {high:'🔴',med:'🟡',low:'🟢'};
   const canC   = canCheck(t);
@@ -630,8 +706,9 @@ function renderTask(t) {
           ${person.name}</span>`:''}
         ${curPersonFilter&&area?`<span class="badge" style="background:${area.color};color:white">${area.icon} ${area.name}</span>`:''}
         <span class="badge ${pbc[t.priority]||''}">${pbe[t.priority]||''} ${PRIO[t.priority]||''}</span>
+        ${Number(t.carried)>0?`<span class="badge b-carry">↪ Arrastrada${Number(t.carried)>1?` ×${Number(t.carried)} sem`:''}</span>`:''}
         ${t.temp?`<span class="badge b-temp">⏱ ${TEMP[t.temp]||t.temp}</span>`:''}
-        ${t.dueDate?`<span class="badge b-date ${ov?'ov':''}">📅 ${fmtShort(new Date(t.dueDate))}${ov?' · Vencida':''}</span>`:''}
+        ${t.dueDate?`<span class="badge b-date ${ov?'ov':''}">📅 ${fmtShort(parseDay(t.dueDate))}${ov?' · Vencida':''}</span>`:''}
       </div>
       ${t.notes?`<div class="tnote">📝 ${esc(t.notes)}</div>`:''}
       ${(isMe||isAdmin())&&!showNF?`<button onclick="showNoteForm('${t.id}')"
@@ -814,7 +891,7 @@ function openModal(id=null){
           </select></div>
       </div>
       <div class="fg"><label class="fl">Fecha límite</label>
-        <input type="date" class="fi" id="mD" value="${t?.dueDate||''}"></div>
+        <input type="date" class="fi" id="mD" value="${t?.dueDate?String(t.dueDate).slice(0,10):''}"></div>
       <div class="fg"><label class="fl">Notas</label>
         <textarea class="fi" id="mN" placeholder="Contexto, links, detalles...">${t?.notes||''}</textarea></div>
     </div>
@@ -872,6 +949,29 @@ document.addEventListener('keydown', e=>{
     &&document.activeElement.tagName!=='INPUT'&&document.activeElement.tagName!=='TEXTAREA'
     &&isAdmin()) openModal();
 });
+
+// ══ PWA ══════════════════════════════════════════════════════════
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  updateInstallBtn();
+});
+function updateInstallBtn() {
+  const b = document.getElementById('installBtn');
+  if (b) b.style.display = deferredPrompt ? 'inline-flex' : 'none';
+}
+async function installApp() {
+  if (!deferredPrompt) return;
+  deferredPrompt.prompt();
+  await deferredPrompt.userChoice;
+  deferredPrompt = null;
+  updateInstallBtn();
+}
+window.addEventListener('appinstalled', () => { deferredPrompt = null; updateInstallBtn(); toast('✓ App instalada'); });
 
 // Auto-login si guardó sesión
 const savedUser = localStorage.getItem('mas_user');
